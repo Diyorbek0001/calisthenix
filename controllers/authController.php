@@ -149,6 +149,7 @@ function loginUser(PDO $pdo, string $email, string $password): array
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $user['id'];
+    $_SESSION['user_name'] = (string) $user['full_name'];
 
     return [];
 }
@@ -172,6 +173,10 @@ function getCurrentUser(PDO $pdo): ?array
     $stmt = $pdo->prepare($selectSql);
     $stmt->execute(['id' => (int) $_SESSION['user_id']]);
     $user = $stmt->fetch();
+
+    if ($user) {
+        $_SESSION['user_name'] = (string) $user['full_name'];
+    }
 
     return $user ?: null;
 }

@@ -183,7 +183,45 @@ function getUserWorkouts(PDO $pdo, int $userId): array
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute(['user_id' => $userId]);
+
     return $stmt->fetchAll();
+}
+
+/**
+ * Returns aggregate dashboard stats for current user.
+ */
+function getUserWorkoutStats(PDO $pdo, int $userId): array
+{
+    $userColumn = workoutUserIdColumn($pdo);
+    $logWorkoutColumn = logWorkoutIdColumn($pdo);
+    $logExerciseColumn = logExerciseIdColumn($pdo);
+    $logSets = logSetsColumn($pdo);
+    $logReps = logRepsColumn($pdo);
+
+    $sql = sprintf(
+        'SELECT
+            COUNT(DISTINCT w.id) AS total_workouts,
+            COUNT(DISTINCT wl.%s) AS total_exercises,
+            COALESCE(SUM(wl.%s * wl.%s), 0) AS total_reps
+         FROM workouts w
+         LEFT JOIN workout_logs wl ON wl.%s = w.id
+         WHERE w.%s = :user_id',
+        $logExerciseColumn,
+        $logSets,
+        $logReps,
+        $logWorkoutColumn,
+        $userColumn
+    );
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(['user_id' => $userId]);
+    $stats = $stmt->fetch();
+
+    return [
+        'total_workouts' => isset($stats['total_workouts']) ? (int) $stats['total_workouts'] : 0,
+        'total_exercises' => isset($stats['total_exercises']) ? (int) $stats['total_exercises'] : 0,
+        'total_reps' => isset($stats['total_reps']) ? (int) $stats['total_reps'] : 0,
+    ];
 }
 
 /**
@@ -225,6 +263,7 @@ function getWorkoutByLogId(PDO $pdo, int $userId, int $workoutLogId): ?array
     ]);
 
     $row = $stmt->fetch();
+
     return $row ?: null;
 }
 
@@ -338,11 +377,13 @@ function deleteWorkout(PDO $pdo, int $userId, int $workoutId): bool
         ]);
 
         $pdo->commit();
+
         return $deleteWorkoutStmt->rowCount() > 0;
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
+
         return false;
     }
 }
