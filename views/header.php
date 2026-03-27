@@ -35,6 +35,9 @@ $isLoggedIn = !empty($_SESSION['user_id']);
                         <a class="nav-link <?php echo $currentScript === 'dashboard.php' ? 'active' : ''; ?>" href="dashboard.php">Dashboard</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link <?php echo $currentScript === 'add_workout.php' ? 'active' : ''; ?>" href="add_workout.php">Add Workout</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="logout.php">Logout</a>
                     </li>
                 <?php else: ?>

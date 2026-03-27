@@ -9,8 +9,60 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 
 /**
+ * Reads and caches users table columns.
+ */
+function getUsersTableColumns(PDO $pdo): array
+{
+    static $cachedColumns = null;
+
+    if ($cachedColumns !== null) {
+        return $cachedColumns;
+    }
+
+    $columnsStmt = $pdo->query('SHOW COLUMNS FROM users');
+    $cachedColumns = $columnsStmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    return $cachedColumns;
+}
+
+/**
+ * Returns the display-name column used by users table.
+ */
+function getUserNameColumn(PDO $pdo): string
+{
+    $columns = getUsersTableColumns($pdo);
+
+    if (in_array('full_name', $columns, true)) {
+        return 'full_name';
+    }
+
+    if (in_array('username', $columns, true)) {
+        return 'username';
+    }
+
+    return 'full_name';
+}
+
+/**
+ * Returns the password-hash column used by users table.
+ */
+function getUserPasswordColumn(PDO $pdo): string
+{
+    $columns = getUsersTableColumns($pdo);
+
+    if (in_array('password_hash', $columns, true)) {
+        return 'password_hash';
+    }
+
+    if (in_array('password', $columns, true)) {
+        return 'password';
+    }
+
+    return 'password_hash';
+}
+
+/**
  * Registers a new user after validating basic input rules.
- * Returns an array with validation errors, if any.
  */
 function registerUser(PDO $pdo, string $username, string $email, string $password): array
 {
@@ -42,17 +94,22 @@ function registerUser(PDO $pdo, string $username, string $email, string $passwor
         return ['This email is already registered.'];
     }
 
-    // Hash password before saving to database.
+    // Always store hashed password; this works for both `password_hash` and `password` columns.
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+    $nameColumn = getUserNameColumn($pdo);
+    $passwordColumn = getUserPasswordColumn($pdo);
 
-    $insertStmt = $pdo->prepare(
-        'INSERT INTO users (full_name, email, password_hash) VALUES (:full_name, :email, :password_hash)'
+    $insertSql = sprintf(
+        'INSERT INTO users (%s, email, %s) VALUES (:name, :email, :password_value)',
+        $nameColumn,
+        $passwordColumn
     );
 
+    $insertStmt = $pdo->prepare($insertSql);
     $insertStmt->execute([
-        'full_name' => $username,
+        'name' => $username,
         'email' => $email,
-        'password_hash' => $passwordHash,
+        'password_value' => $passwordHash,
     ]);
 
     return [];
@@ -63,8 +120,6 @@ function registerUser(PDO $pdo, string $username, string $email, string $passwor
  */
 function loginUser(PDO $pdo, string $email, string $password): array
 {
-    $errors = [];
-
     $email = trim($email);
 
     if ($email === '' || $password === '') {
@@ -75,15 +130,23 @@ function loginUser(PDO $pdo, string $email, string $password): array
         return ['Please provide a valid email address.'];
     }
 
-    $stmt = $pdo->prepare('SELECT id, full_name, password_hash FROM users WHERE email = :email LIMIT 1');
+    $nameColumn = getUserNameColumn($pdo);
+    $passwordColumn = getUserPasswordColumn($pdo);
+
+    $selectSql = sprintf(
+        'SELECT id, %s AS full_name, %s AS password_hash FROM users WHERE email = :email LIMIT 1',
+        $nameColumn,
+        $passwordColumn
+    );
+
+    $stmt = $pdo->prepare($selectSql);
     $stmt->execute(['email' => $email]);
     $user = $stmt->fetch();
 
-    if (!$user || !password_verify($password, $user['password_hash'])) {
+    if (!$user || !password_verify($password, (string) $user['password_hash'])) {
         return ['Invalid email or password.'];
     }
 
-    // Prevent session fixation by generating a new id after login.
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $user['id'];
 
@@ -99,7 +162,14 @@ function getCurrentUser(PDO $pdo): ?array
         return null;
     }
 
-    $stmt = $pdo->prepare('SELECT id, full_name, email, created_at FROM users WHERE id = :id LIMIT 1');
+    $nameColumn = getUserNameColumn($pdo);
+
+    $selectSql = sprintf(
+        'SELECT id, %s AS full_name, email, created_at FROM users WHERE id = :id LIMIT 1',
+        $nameColumn
+    );
+
+    $stmt = $pdo->prepare($selectSql);
     $stmt->execute(['id' => (int) $_SESSION['user_id']]);
     $user = $stmt->fetch();
 
